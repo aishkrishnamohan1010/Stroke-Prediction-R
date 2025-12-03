@@ -81,5 +81,27 @@ library(caret)
 library(ROSE)
 library(pROC)
 
-Then open this R Markdown file:
-StrokePrediction_AishwaryaKrishnamohan.Rmd
+Then open this R Markdown file below and knit:
+StrokePrediction_AishwaryaKrishnamohan.Rmd 
+
+Skills Demonstrated
+
+- R programming
+- Data preprocessing
+- Imbalanced data handling
+- Logistic regression modeling
+- Statistical inference
+- ROC–AUC analysis
+- Reproducible reporting with R Markdown
+- GitHub documentation best practices
+  
+Future Improvements
+- Try tree-based models (Random Forest, XGBoost)
+- Build a Shiny app for interactive prediction
+- Add model explainability (SHAP values)
+
+
+Author
+Aishwarya Krishnamohan
+PhD in Cell & Molecular Biology
+Data Science focus in biomedical analytics
