@@ -1,3 +1,9 @@
+<p align="center">
+  <img src="ai-neural-network-brain.jpg" alt="Stroke Prediction Project Cover">
+</p>
+
+
+
 Stroke Risk Prediction using Logistic Regression in R
 
 Project Overview
