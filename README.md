@@ -75,6 +75,8 @@ install.packages("caret")
 install.packages("ROSE")
 install.packages("pROC")
 
+This project uses the tidyverse suite for data manipulation and visualization, caret for data partitioning and modeling, ROSE for handling class imbalance, and pROC for ROC–AUC evaluation.
+
 Load libraries:
 library(tidyverse)
 library(caret)
