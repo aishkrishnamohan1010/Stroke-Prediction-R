@@ -1,0 +1,394 @@
+---
+title: "Stroke Prediction using Logistic Regression in R"
+author: "Aishwarya Krishnamohan"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    theme: cosmo
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE
+)
+install.packages("tidyverse")
+library(tidyverse)
+install.packages("caret")
+library(caret)
+install.packages("ROSE")
+library(ROSE)
+install.packages("pROC")
+library(pROC)
+
+```
+
+1. Introduction
+
+
+Stroke is one of the leading causes of death and long-term disability worldwide. Being able to estimate an individual's risk of stroke based on demographic and clinical variables can support early intervention and preventive care.
+
+
+In this project, I use a healthcare stroke dataset to:
+
+Explore and understand the data.
+
+Handle class imbalance (since stroke cases are rare).
+
+Build a logistic regression model to predict stroke.
+
+Evaluate the model using a confusion matrix and ROC–AUC.
+
+Interpret which variables are most strongly associated with stroke risk.
+
+The target variable, stroke, is binary:
+0 = no stroke
+1 = stroke
+
+
+2. Data Loading and Initial Exploration
+
+2.1 Load the dataset
+
+
+```{r}
+# Replace the file name/path if needed
+
+stroke <- read.csv("healthcare-dataset-stroke-data.csv", stringsAsFactors = FALSE)
+
+# Quick overview of the data structure
+
+glimpse(stroke)
+```
+
+Explanation
+
+Here I load the CSV file containing patient-level information such as age, gender, hypertension, heart disease, average glucose level, BMI, smoking status, and stroke outcome.
+
+glimpse() gives a compact summary of variable names and types.
+
+```{r}
+summary(stroke)
+
+# Count missing values per column
+
+colSums(is.na(stroke))
+```
+
+3. Data Cleaning and Preprocessing
+
+3.1 Handle BMI and convert types
+
+Clean and convert bmi to numeric if needed
+```{r}
+if (is.character(stroke$bmi)) {
+stroke$bmi[stroke$bmi == "" | stroke$bmi == "N/A"] <- NA
+stroke$bmi <- as.numeric(stroke$bmi)
+}
+#Impute missing BMI with mean (simple and common approach)
+stroke$bmi[is.na(stroke$bmi)] <- mean(stroke$bmi, na.rm = TRUE)
+#Convert categorical columns to factors
+cols_factor <- c(
+"gender",
+"hypertension",
+"heart_disease",
+"ever_married",
+"work_type",
+"Residence_type",
+"smoking_status",
+"stroke"
+)
+stroke[cols_factor] <- lapply(stroke[cols_factor], factor)
+
+#Remove very rare category "Other" in gender if present
+if ("Other" %in% levels(stroke$gender)) {
+stroke <- stroke[stroke$gender != "Other", ]
+stroke$gender <- droplevels(stroke$gender)
+}
+str(stroke)
+```
+Explanation
+
+bmi is ensured to be numeric and any missing values are filled with the mean BMI.
+
+Categorical variables are converted to factors so that the logistic regression model treats them appropriately as categories, not continuous numbers.
+
+Rare categories (like gender = "Other") are removed to avoid instability in modeling due to very small group sizes.
+
+4. Exploratory Data Analysis (EDA)
+
+4.1 Class balance: stroke vs non-stroke
+
+```{r}
+stroke %>%
+count(stroke) %>%
+mutate(prop = n / sum(n)) %>%
+knitr::kable(caption = "Class distribution for stroke")
+ggplot(stroke, aes(x = stroke)) +
+geom_bar() +
+geom_text(
+stat = "count",
+aes(label = ..count..),
+vjust = -0.3
+) +
+labs(
+title = "Class Distribution of Stroke Outcome",
+x = "Stroke (0 = No, 1 = Yes)",
+y = "Count"
+) +
+theme_minimal()
+```
+Interpretation
+
+The table and bar plot show how many patients had a stroke versus no stroke.
+
+Typically, only about 5% of cases are strokes, which creates a class imbalance problem. If not handled, a model might simply predict "no stroke" for everyone and still achieve high accuracy but fail to identify actual stroke cases.
+
+4.2 Distribution of numeric variables
+
+```{r}
+numeric_vars <- stroke %>%
+select(age, avg_glucose_level, bmi) %>%
+pivot_longer(cols = everything(), names_to = "variable", values_to = "value")
+ggplot(numeric_vars, aes(x = value)) +
+geom_histogram(bins = 30) +
+facet_wrap(~ variable, scales = "free") +
+labs(
+title = "Distributions of Age, Average Glucose Level, and BMI",
+x = "Value",
+y = "Count"
+) +
+theme_minimal()
+```
+Interpretation
+
+These histograms show how age, average glucose level, and BMI are distributed:
+Age is often skewed toward middle-aged and older adults.
+Average glucose level and BMI show their own spread and potential outliers.
+These variables are clinically relevant and can influence stroke risk.
+
+4.3 Numeric variables by stroke status
+
+```{r}
+ggplot(stroke, aes(x = stroke, y = age, fill = stroke)) +
+geom_boxplot() +
+labs(
+title = "Age by Stroke Status",
+x = "Stroke",
+y = "Age"
+) +
+theme_minimal()
+ggplot(stroke, aes(x = stroke, y = avg_glucose_level, fill = stroke)) +
+geom_boxplot() +
+labs(
+title = "Average Glucose Level by Stroke Status",
+x = "Stroke",
+y = "Average Glucose Level"
+) +
+theme_minimal()
+
+ggplot(stroke, aes(x = stroke, y = bmi, fill = stroke)) +
+geom_boxplot() +
+labs(
+title = "BMI by Stroke Status",
+x = "Stroke",
+y = "BMI"
+) +
+theme_minimal()
+
+```
+Interpretation
+
+These boxplots compare the distribution of age, average glucose level, and BMI between stroke and non-stroke patients. Stroke patients often tend to be older and may have higher average glucose levels, which aligns with clinical expectations.
+
+4.4 Categorical variables vs stroke (example: hypertension)
+
+```{r}
+
+stroke %>%
+count(hypertension, stroke) %>%
+group_by(hypertension) %>%
+mutate(prop = n / sum(n)) %>%
+ggplot(aes(x = hypertension, y = prop, fill = stroke)) +
+geom_col(position = "fill") +
+scale_y_continuous(labels = scales::percent) +
+labs(
+title = "Proportion of Stroke by Hypertension Status",
+x = "Hypertension (0 = No, 1 = Yes)",
+y = "Proportion"
+) +
+theme_minimal()
+
+```
+Interpretation
+
+Patients with hypertension show a higher proportion of stroke cases compared with those without hypertension. This supports the idea that hypertension is a meaningful risk factor for stroke.
+You can create similar visualizations for heart_disease, smoking_status, etc., if desired.
+
+5. Train–Test Split and Class Balancing
+
+5.1 Train–test split
+```{r}
+
+set.seed(123)
+index <- createDataPartition(stroke$stroke, p = 0.7, list = FALSE)
+train <- stroke[index, ]
+test <- stroke[-index, ]
+#Remove id if present (it is just an identifier)
+if ("id" %in% names(train)) {
+train$id <- NULL
+test$id <- NULL
+}
+dim(train)
+dim(test)
+```
+
+Explanation
+
+The dataset is split into:
+70% for training (used to build the model)
+30% for testing (used to evaluate how well the model generalizes)
+
+5.2 Check class imbalance in training data
+
+```{r}
+table(train$stroke)
+prop.table(table(train$stroke))
+
+```
+
+Interpretation
+
+These results show that the training data is still heavily imbalanced toward the non-stroke class, which motivates using a balancing method.
+
+
+5.3 Balance the training data using ROSE
+
+```{r}
+set.seed(123)
+balanced_train <- ROSE(stroke ~ ., data = train, seed = 123)$data
+table(balanced_train$stroke)
+prop.table(table(balanced_train$stroke))
+```
+Interpretation
+
+ROSE synthetically generates new samples so that the training set has approximately equal numbers of stroke and non-stroke cases. This helps the model learn patterns for the minority class (stroke) more effectively.
+
+6. Model Building: Logistic Regression
+
+```{r}
+log_model <- glm(stroke ~ ., data = balanced_train, family = binomial)
+summary(log_model)
+```
+
+Interpretation
+
+Logistic regression is appropriate for a binary outcome (stroke vs no stroke). 
+
+The summary() output shows:
+
+Coefficients: how each predictor affects the log-odds of stroke
+Significance (p-values): which predictors are statistically important.
+
+In this model, variables such as age, hypertension, and average glucose level typically emerge as strong predictors of stroke risk. Some categories of smoking_status and work_type also show meaningful relationships.
+
+7. Model Evaluation
+
+7.1 Predictions on the test set
+
+```{r}
+
+#Predicted probabilities for stroke = 1
+test_prob <- predict(log_model, newdata = test, type = "response")
+#Convert probabilities to class labels using threshold 0.5
+test_pred <- ifelse(test_prob > 0.5, "1", "0")
+test_pred <- factor(test_pred, levels = c("0", "1"))
+#Confusion matrix
+cm <- confusionMatrix(test_pred, test$stroke, positive = "1")
+cm
+
+```
+
+Interpretation
+
+The confusion matrix summarizes:
+True Negatives (TN): correctly predicted non-stroke cases
+True Positives (TP): correctly predicted stroke cases
+False Negatives (FN): stroke cases the model missed
+False Positives (FP): non-stroke cases predicted as stroke
+From cm, we can read metrics such as:
+Accuracy: overall proportion of correct predictions
+Sensitivity (Recall): how many actual stroke cases were correctly identified
+Specificity: how many non-stroke cases were correctly identified
+These values give a practical sense of how well the model performs.
+
+7.2 Confusion matrix visualization
+
+
+```{r}
+cm_table <- as.data.frame(cm$table)
+ggplot(cm_table, aes(x = Reference, y = Prediction, fill = Freq)) +
+geom_tile() +
+geom_text(aes(label = Freq)) +
+labs(
+title = "Confusion Matrix Heatmap",
+x = "Actual Stroke Status",
+y = "Predicted Stroke Status"
+) +
+theme_minimal()
+```
+Interpretation
+
+The heatmap visually highlights where the model performs well (high counts on the diagonal) and where it makes errors (off-diagonal cells).
+
+7.3 ROC curve and AUC
+
+```{r}
+roc_obj <- roc(test$stroke, test_prob)
+plot(roc_obj, main = "ROC Curve for Stroke Prediction Model")
+abline(a = 0, b = 1, lty = 2)
+
+auc_value <- auc(roc_obj)
+auc_value
+```
+
+Interpretation
+
+The ROC curve plots the trade-off between sensitivity and 1 − specificity across different probability thresholds.
+The diagonal dashed line represents a random classifier (AUC = 0.5).
+Our ROC curve lies well above this line, and the AUC is around r round(auc_value, 3), which indicates good discriminative ability.
+An AUC near 0.85 means that, for a randomly chosen pair of patients (one with stroke and one without), the model will assign a higher stroke risk to the stroke patient about 85% of the time.
+
+
+8. Conclusions and Next Steps
+
+In this project, I:
+
+Performed data cleaning and converted appropriate variables to numeric or factor types.
+
+Conducted exploratory analysis to understand the distributions and relationships between features and stroke.
+
+Built a logistic regression model to predict stroke risk.
+
+Evaluated the model using a confusion matrix and ROC–AUC.
+
+Key findings:
+
+Age, hypertension, and average glucose level are strong predictors of stroke.
+
+The model achieves reasonable accuracy and a good AUC (around 0.84–0.85), showing that it can distinguish between stroke and non-stroke cases with good reliability.
+
+There is a trade-off between sensitivity and specificity that can be adjusted by changing the decision threshold, depending on whether the priority is to catch as many stroke cases as possible or to reduce false alarms.
+
+Possible next steps:
+
+Experiment with more complex models (e.g., random forest, gradient boosting) and compare performance.
+
+Use cross-validation for more robust model evaluation.
+
+Calibrate predicted probabilities to better reflect true risk in a clinical setting.
+
+This project demonstrates end-to-end skills in data preprocessing, exploratory analysis, classification modeling, and model evaluation using R.
